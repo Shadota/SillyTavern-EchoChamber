@@ -1,6 +1,6 @@
 # EchoChamber for SillyTavern
 
-**EchoChamber** is a powerful SillyTavern extension that generates a dynamic, AI-powered "audience" feed reacting live to your story. Whether it's a salt-fueled Twitch chat, a viral Twitter thread, or a voyeuristic NSFW advisor, EchoChamber brings your world to life with highly customizable reactions.
+**EchoChamber** is a powerful SillyTavern extension that generates a dynamic, AI-powered "audience" feed reacting live to your story or conversation. Whether it's a salt-fueled Twitch chat, a viral Twitter thread, or a voyeuristic NSFW advisor, EchoChamber brings your world to life with highly customizable reactions.
 
 ![EchoChamber Preview](https://github.com/user-attachments/assets/c543a4f1-0bc3-4da8-b1fa-611ab7599308)
 
@@ -122,3 +122,4 @@ EchoChamber parses responses based on a simple `Username: Message` format. When 
     </td>
   </tr>
 </table>
+
