@@ -1,0 +1,183 @@
+<div class="discord_settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>EchoChamber</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+            <!-- Header Section -->
+            <div
+                style="margin-bottom: 15px; padding: 10px; border-left: 3px solid var(--SmartThemeQuoteColor); background: rgba(0,0,0,0.15); border-radius: 0 4px 4px 0; font-size: 0.95em; opacity: 0.9;">
+                Display a fake chat feed that reacts dynamically to the conversation context.
+            </div>
+
+            <!-- Main Toggles -->
+            <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px;">
+                <label class="checkbox_label" for="discord_enabled"
+                    style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input id="discord_enabled" type="checkbox" class="checkbox">
+                    <span style="font-weight: bold;"><i class="fa-solid fa-power-off"
+                            style="width: 20px; text-align: center; color: var(--SmartThemeQuoteColor);"></i> Global
+                        Enable</span>
+                </label>
+                <label class="checkbox_label" for="discord_quick_bar_enabled"
+                    style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                    <input id="discord_quick_bar_enabled" type="checkbox" class="checkbox">
+                    <span><i class="fa-solid fa-bolt" style="width: 20px; text-align: center; color: #ffd700;"></i> Show
+                        Quick Settings Bar</span>
+                </label>
+            </div>
+
+            <hr style="margin: 15px 0; opacity: 0.3;">
+
+            <!-- Generation Engine Section -->
+            <div style="margin-bottom: 20px;">
+                <h4
+                    style="margin-bottom: 10px; font-size: 0.9em; text-transform: uppercase; color: var(--SmartThemeQuoteColor); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-microchip"></i> Generation Engine
+                </h4>
+
+                <label for="discord_source" style="display: block; margin-bottom: 5px; font-size: 0.9em;">
+                    <i class="fa-solid fa-server" style="margin-right: 5px; opacity: 0.8;"></i> Generation Source:
+                </label>
+                <select id="discord_source" class="text_pole" style="width: 100%; margin-bottom: 10px;">
+                    <option value="default">Default (Main API)</option>
+                    <option value="ollama">Ollama (Local)</option>
+                    <option value="openai">OpenAI Compatible (LM Studio/Kobold)</option>
+                </select>
+
+                <!-- Provider Settings (Ollama) -->
+                <div id="discord_ollama_settings"
+                    style="display:none; background: rgba(0,255,0,0.05); padding: 12px; border-radius: 8px; border: 1px solid rgba(0,255,0,0.1); margin-top: 5px;">
+                    <h5 style="margin: 0 0 10px 0; font-size: 0.85em; display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-terminal"></i> Ollama Integration
+                    </h5>
+                    <label style="font-size: 0.85em; opacity: 0.8;">API URL:</label>
+                    <input id="discord_url" type="text" class="text_pole" placeholder="http://localhost:11434"
+                        style="margin-bottom: 10px;">
+                    <label style="font-size: 0.85em; opacity: 0.8;">Active Model:</label>
+                    <select id="discord_model_select" class="text_pole" style="margin-bottom: 10px;"></select>
+                    <div id="discord_ollama_status" style="font-size: 0.85em; font-weight: bold;"></div>
+                </div>
+
+                <!-- Provider Settings (OpenAI) -->
+                <div id="discord_openai_settings"
+                    style="display:none; background: rgba(0,180,255,0.05); padding: 12px; border-radius: 8px; border: 1px solid rgba(0,180,255,0.1); margin-top: 5px;">
+                    <h5 style="margin: 0 0 10px 0; font-size: 0.85em; display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-cloud"></i> OpenAI Compatible API
+                    </h5>
+                    <label style="font-size: 0.85em; opacity: 0.8;">Provider Preset:</label>
+                    <select id="discord_openai_preset" class="text_pole" style="margin-bottom: 10px;">
+                        <option value="custom">Custom</option>
+                        <option value="lmstudio">LM Studio (localhost:1234)</option>
+                        <option value="kobold">KoboldCPP (localhost:5001)</option>
+                        <option value="textgen">TextGenWebUI (localhost:5000)</option>
+                        <option value="vllm">vLLM (localhost:8000)</option>
+                    </select>
+                    <label style="font-size: 0.85em; opacity: 0.8;">Target URL:</label>
+                    <input id="discord_openai_url" type="text" class="text_pole" placeholder="http://localhost:1234/v1"
+                        style="margin-bottom: 10px;">
+                    <label style="font-size: 0.85em; opacity: 0.8;">API Key (if required):</label>
+                    <input id="discord_openai_key" type="password" class="text_pole" placeholder="sk-..."
+                        style="margin-bottom: 10px;">
+                    <label style="font-size: 0.85em; opacity: 0.8;">Model Identifier:</label>
+                    <input id="discord_openai_model" type="text" class="text_pole" placeholder="local-model">
+                </div>
+            </div>
+
+            <hr style="margin: 15px 0; opacity: 0.15;">
+
+            <!-- Content Configuration Section -->
+            <div style="margin-bottom: 20px;">
+                <h4
+                    style="margin-bottom: 10px; font-size: 0.9em; text-transform: uppercase; color: var(--SmartThemeQuoteColor); display: flex; align-items: center; gap: 8px;">
+                    <i class="fa-solid fa-sliders"></i> Content Settings
+                </h4>
+
+                <div style="display: grid; grid-template-columns: 1fr; gap: 15px;">
+                    <div>
+                        <label for="discord_style" style="display: block; margin-bottom: 5px; font-size: 0.9em;">
+                            <i class="fa-solid fa-palette" style="margin-right: 5px; opacity: 0.8;"></i> Feed Style
+                            Template:
+                        </label>
+                        <select id="discord_style" class="text_pole" style="width: 100%;">
+                            <option value="twitch">Discord / Twitch (Live Chat & Slang)</option>
+                            <option value="verbose">Thoughtful / Verbose (Literary Analysis)</option>
+                            <option value="twitter">Twitter / X (Social Media Thread)</option>
+                            <option value="news">Breaking News (Headlines Only)</option>
+                            <option value="mst3k">MST3K (Sarcastic Commentary)</option>
+                            <option value="nsfw_ava">Ava NSFW (Voyeuristic Advisor)</option>
+                            <option value="nsfw_kai">Kai NSFW (Erotic Male Avatar)</option>
+                            <option value="hypebot">HypeBot (Single Hype Reaction)</option>
+                            <option value="doomscrollers">Doomscrollers (Existential Dread)</option>
+                            <option value="dumbanddumber">Dumb & Dumber (Harry & Lloyd)</option>
+                            <option value="custom">Custom (Edit custom.md)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label for="discord_user_count" style="display: block; margin-bottom: 5px; font-size: 0.9em;">
+                            <i class="fa-solid fa-users" style="margin-right: 5px; opacity: 0.8;"></i> Number of Users
+                            (1-20):
+                        </label>
+                        <input id="discord_user_count" type="number" class="text_pole" min="1" max="20" value="5"
+                            style="width: 100%;">
+                        <small style="font-size: 0.8em; opacity: 0.6; display: block; margin-top: 4px;">Usernames are
+                            dynamically generated for each reaction.</small>
+                    </div>
+                </div>
+            </div>
+
+            <hr style="margin: 15px 0; opacity: 0.15;">
+
+            <!-- Style Management -->
+            <h4
+                style="margin: 20px 0 10px 0; font-size: 0.9em; text-transform: uppercase; color: var(--SmartThemeQuoteColor); display: flex; align-items: center; gap: 8px;">
+                <i class="fa-solid fa-folder-tree"></i> Style Manager
+            </h4>
+
+            <div
+                style="border: 1px dashed var(--SmartThemeBorderColor); padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.1);">
+                <div style="display: flex; gap: 8px; margin-bottom: 10px;">
+                    <select id="discord_manage_style_select" class="text_pole" style="flex-grow: 1;"
+                        title="Select Style to Edit"></select>
+                    <button id="discord_refresh_btn" class="menu_button small_button" title="Refresh List"
+                        style="padding: 0 12px;">
+                        <i class="fa-solid fa-rotate"></i>
+                    </button>
+                    <button id="discord_delete_btn" class="menu_button small_button" title="Delete Selected style"
+                        style="padding: 0 12px; color: #ff5555;">
+                        <i class="fa-solid fa-trash"></i>
+                    </button>
+                </div>
+
+                <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 15px;">
+                    <input type="text" id="discord_rename_input" class="text_pole"
+                        placeholder="Rename currently selected style" style="flex-grow: 1;">
+                    <button id="discord_rename_btn" class="menu_button" style="white-space: nowrap;">
+                        <i class="fa-solid fa-pen-to-square"></i> Rename
+                    </button>
+                </div>
+
+                <div
+                    style="margin-top: 10px; border-top: 1px solid var(--SmartThemeBorderColor); padding-top: 12px; text-align: center;">
+                    <input type="file" id="discord_import_file" accept=".md" style="display:none;">
+                    <button id="discord_import_btn" class="menu_button"
+                        style="width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px; padding: 10px;">
+                        <i class="fa-solid fa-file-import"></i> <b>Import New Style (.md)</b>
+                    </button>
+                    <div style="font-size: 0.75em; opacity: 0.6; margin-top: 6px;">
+                        Create custom AI personas by uploading prompt templates.
+                    </div>
+                </div>
+            </div>
+
+            <hr style="margin: 20px 0; opacity: 0.3;">
+
+            <div style="font-size: 0.8em; opacity: 0.5; text-align: center;">
+                EchoChamber v2.1.0 &bull; Built with <i class="fa-solid fa-heart" style="color: #ff3333;"></i> by
+                Antigravity
+            </div>
+        </div>
+    </div>
+</div>

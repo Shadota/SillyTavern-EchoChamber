@@ -1,0 +1,12 @@
+{
+    "display_name": "EchoChamber",
+    "loading_order": 1000,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Antigravity",
+    "version": "2.1.0",
+    "homePage": "https://github.com/SillyTavern/Extension-DiscordChat",
+    "auto_update": true
+}
