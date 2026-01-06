@@ -286,7 +286,7 @@ async function generateDiscordChat() {
     const { sys } = await getPromptForStyle(settings.style || 'twitch', userCount);
 
     const systemPrompt = sys;
-    console.log(`[DiscordChat] Using style: ${settings.style}. System Prompt Length: ${systemPrompt.length}`);
+    // console.log(`[DiscordChat] Using style: ${settings.style}. System Prompt Length: ${systemPrompt.length}`);
 
     // prompt construction with System Prompt at the END to maximize adherence
     const taskMsg = userCount > 1
@@ -430,7 +430,7 @@ Do NOT output "Here are the messages". Just the content.`;
             result = data.choices[0].message.content;
 
         } else if (settings.source === 'profile') {
-            // Connection Profile generation using SillyTavern's preset manager
+            // Connection Profile generation using SillyTavern's UI switching
             if (!settings.preset) {
                 setDiscordText('<div class="discord_status">No Connection Profile selected. Check settings.</div>');
                 return;
@@ -438,15 +438,92 @@ Do NOT output "Here are the messages". Just the content.`;
 
             console.log(`[EchoChamber] Generating with Connection Profile: ${settings.preset}`);
 
-            const { generateRaw } = getContext();
-            const rawResult = await generateRaw({
-                prompt: truePrompt,
-                use_mancer: false,
-                forcePreset: settings.preset,
-                streaming: false
-            });
-            result = rawResult;
+            // 1. Capture current profile
+            // Use the connection manager's selectedProfile ID, not the UI value which might be stale
+            const currentProfileId = extension_settings.connectionManager.selectedProfile;
+            const targetProfileName = settings.preset;
 
+            // Resolve Target ID from Name
+            let targetProfileId = '';
+            if (extension_settings.connectionManager?.profiles) {
+                const profileObj = extension_settings.connectionManager.profiles.find(p => p.name === targetProfileName);
+                if (profileObj) targetProfileId = profileObj.id;
+            }
+
+            if (!targetProfileId) {
+                console.error(`[EchoChamber] Could not find ID for profile name: ${targetProfileName}`);
+                setDiscordText(`<div class="discord_status" style="color:#f04747">Profile ID not found for "${targetProfileName}"</div>`);
+                return;
+            }
+
+            // console.log(`[EchoChamber] Switching profile ID: ${currentProfileId} -> ${targetProfileId}`);
+
+            const switchUiToProfile = async (profileId) => {
+                const profileSelect = $('#connection_profiles'); // Global connection dropdown
+                if (!profileSelect.length) {
+                    console.error('[EchoChamber] #connection_profiles dropdown not found');
+                    return false;
+                }
+
+                // If already selected, just return
+                if (extension_settings.connectionManager.selectedProfile === profileId) {
+                    return true;
+                }
+
+                profileSelect.val(profileId);
+                // Dispatch event per ReMemory implementation (added bubbles)
+                document.getElementById('connection_profiles').dispatchEvent(new Event('change', { bubbles: true }));
+
+                // Wait for the specific event that signals connection is ready
+                await new Promise((resolve) => {
+                    const eventName = getContext().event_types.CONNECTION_PROFILE_LOADED;
+                    // Timeout fallback just in case
+                    const timeout = setTimeout(() => {
+                        console.warn('[EchoChamber] Timed out waiting for profile load event');
+                        resolve();
+                    }, 5000);
+
+                    getContext().eventSource.once(eventName, () => {
+                        clearTimeout(timeout);
+                        resolve();
+                    });
+                });
+                return true;
+            };
+
+            try {
+                // 2. Switch to target
+                if (currentProfileId !== targetProfileId) {
+                    await switchUiToProfile(targetProfileId);
+
+                    // Verify switch
+                    if (extension_settings.connectionManager.selectedProfile !== targetProfileId) {
+                        console.error(`[EchoChamber] Profile switch failed. Expected: ${targetProfileId}, Actual: ${extension_settings.connectionManager.selectedProfile}`);
+                        setDiscordText('<div class="discord_status">Connection Switch Failed. Aborting.</div>');
+                        return; // Abort to prevent using wrong API
+                    }
+                    // console.log('[EchoChamber] Switched to target profile.');
+                }
+
+                // 3. Generate
+                const { generateRaw } = getContext();
+                const rawResult = await generateRaw({
+                    prompt: truePrompt,
+                    use_mancer: false,
+                    forcePreset: settings.preset, // Might still affect Samplers
+                    streaming: false
+                });
+                result = rawResult;
+
+            } catch (err) {
+                throw err;
+            } finally {
+                // 4. Restore Original
+                if (currentProfileId && currentProfileId !== targetProfileId) {
+                    // console.log(`[EchoChamber] Restoring original profile: ${currentProfileId}`);
+                    await switchUiToProfile(currentProfileId);
+                }
+            }
         } else {
             // Default Generation logic - use generateRaw for better control
             const { generateRaw } = getContext();
