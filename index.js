@@ -430,7 +430,7 @@ Do NOT output "Here are the messages". Just the content.`;
             result = data.choices[0].message.content;
 
         } else if (settings.source === 'profile') {
-            // Connection Profile generation using SillyTavern's UI switching
+            // Connection Profile generation using profile switching (ReMemory approach)
             if (!settings.preset) {
                 setDiscordText('<div class="discord_status">No Connection Profile selected. Check settings.</div>');
                 return;
@@ -438,90 +438,69 @@ Do NOT output "Here are the messages". Just the content.`;
 
             console.log(`[EchoChamber] Generating with Connection Profile: ${settings.preset}`);
 
-            // 1. Capture current profile
-            // Use the connection manager's selectedProfile ID, not the UI value which might be stale
-            const currentProfileId = extension_settings.connectionManager.selectedProfile;
-            const targetProfileName = settings.preset;
+            // Find the profile object and get its ID
+            const profileObj = extension_settings.connectionManager.profiles.find(p => p.name === settings.preset);
 
-            // Resolve Target ID from Name
-            let targetProfileId = '';
-            if (extension_settings.connectionManager?.profiles) {
-                const profileObj = extension_settings.connectionManager.profiles.find(p => p.name === targetProfileName);
-                if (profileObj) targetProfileId = profileObj.id;
-            }
-
-            if (!targetProfileId) {
-                console.error(`[EchoChamber] Could not find ID for profile name: ${targetProfileName}`);
-                setDiscordText(`<div class="discord_status" style="color:#f04747">Profile ID not found for "${targetProfileName}"</div>`);
+            if (!profileObj) {
+                setDiscordText(`<div class="discord_status" style="color:#f04747">Profile not found "${settings.preset}"</div>`);
                 return;
             }
 
-            // console.log(`[EchoChamber] Switching profile ID: ${currentProfileId} -> ${targetProfileId}`);
+            const targetProfileId = profileObj.id;
+            // Capture current profile from UI dropdown (more reliable than extension_settings)
+            const currentProfileId = $('#connection_profiles').val() || extension_settings.connectionManager.selectedProfile;
+            let swappedProfile = false;
 
-            const switchUiToProfile = async (profileId) => {
-                const profileSelect = $('#connection_profiles'); // Global connection dropdown
-                if (!profileSelect.length) {
-                    console.error('[EchoChamber] #connection_profiles dropdown not found');
-                    return false;
-                }
-
-                // If already selected, just return
-                if (extension_settings.connectionManager.selectedProfile === profileId) {
-                    return true;
-                }
-
-                profileSelect.val(profileId);
-                // Dispatch event per ReMemory implementation (added bubbles)
-                document.getElementById('connection_profiles').dispatchEvent(new Event('change', { bubbles: true }));
-
-                // Wait for the specific event that signals connection is ready
-                await new Promise((resolve) => {
-                    const eventName = getContext().event_types.CONNECTION_PROFILE_LOADED;
-                    // Timeout fallback just in case
-                    const timeout = setTimeout(() => {
-                        console.warn('[EchoChamber] Timed out waiting for profile load event');
-                        resolve();
-                    }, 5000);
-
-                    getContext().eventSource.once(eventName, () => {
-                        clearTimeout(timeout);
-                        resolve();
-                    });
-                });
-                return true;
-            };
+            console.log(`[EchoChamber] Profile state - Current: ${currentProfileId}, Target: ${targetProfileId}`);
 
             try {
-                // 2. Switch to target
+                // Swap to target profile if different from current
                 if (currentProfileId !== targetProfileId) {
-                    await switchUiToProfile(targetProfileId);
-
-                    // Verify switch
-                    if (extension_settings.connectionManager.selectedProfile !== targetProfileId) {
-                        console.error(`[EchoChamber] Profile switch failed. Expected: ${targetProfileId}, Actual: ${extension_settings.connectionManager.selectedProfile}`);
-                        setDiscordText('<div class="discord_status">Connection Switch Failed. Aborting.</div>');
-                        return; // Abort to prevent using wrong API
-                    }
-                    // console.log('[EchoChamber] Switched to target profile.');
+                    console.log(`[EchoChamber] Swapping profile: ${currentProfileId} -> ${targetProfileId}`);
+                    $('#connection_profiles').val(targetProfileId);
+                    document.getElementById('connection_profiles').dispatchEvent(new Event('change'));
+                    await new Promise((resolve) => {
+                        getContext().eventSource.once(getContext().event_types.CONNECTION_PROFILE_LOADED, resolve);
+                    });
+                    swappedProfile = true;
+                    console.log(`[EchoChamber] Profile swap complete. Swapped flag: ${swappedProfile}`);
+                } else {
+                    console.log(`[EchoChamber] Profiles match, no swap needed`);
                 }
 
-                // 3. Generate
-                const { generateRaw } = getContext();
-                const rawResult = await generateRaw({
-                    prompt: truePrompt,
-                    use_mancer: false,
-                    forcePreset: settings.preset, // Might still affect Samplers
-                    streaming: false
+                // Use SillyTavern's /genraw slash command for generation
+                const genCommand = `/genraw lock=on ${truePrompt}`;
+                const genResult = await getContext().executeSlashCommandsWithOptions(genCommand, {
+                    handleParserErrors: false,
+                    handleExecutionErrors: false,
+                    parserFlags: {},
+                    abortController: abortController
                 });
-                result = rawResult;
 
-            } catch (err) {
-                throw err;
+                result = genResult?.pipe || '';
+                console.log(`[EchoChamber] Generation complete. Result length: ${result.length}`);
+
             } finally {
-                // 4. Restore Original
-                if (currentProfileId && currentProfileId !== targetProfileId) {
-                    // console.log(`[EchoChamber] Restoring original profile: ${currentProfileId}`);
-                    await switchUiToProfile(currentProfileId);
+                // Restore original profile if we swapped
+                console.log(`[EchoChamber] Finally block executing. swappedProfile: ${swappedProfile}, currentProfileId: "${currentProfileId}"`);
+
+                if (swappedProfile) {
+                    console.log(`[EchoChamber] Restoring original profile: "${currentProfileId}"`);
+                    const beforeRestore = extension_settings.connectionManager.selectedProfile;
+                    console.log(`[EchoChamber] Profile before restore: ${beforeRestore}`);
+
+                    const restoreId = currentProfileId || '';
+                    $('#connection_profiles').val(restoreId);
+                    document.getElementById('connection_profiles').dispatchEvent(new Event('change'));
+                    await new Promise((resolve) => {
+                        getContext().eventSource.once(getContext().event_types.CONNECTION_PROFILE_LOADED, resolve);
+                    });
+
+                    const afterRestore = extension_settings.connectionManager.selectedProfile;
+                    console.log(`[EchoChamber] Profile after restore: ${afterRestore}`);
+                    console.log(`[EchoChamber] Restoration ${afterRestore == restoreId ? 'SUCCESSFUL' : 'FAILED'}`);
+                } else {
+                    console.log(`[EchoChamber] Skipping restoration (swappedProfile: ${swappedProfile})`);
                 }
             }
         } else {
