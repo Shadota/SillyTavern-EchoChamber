@@ -42,6 +42,7 @@
                 </label>
                 <select id="discord_source" class="text_pole" style="width: 100%; margin-bottom: 10px;">
                     <option value="default">Default (Main API)</option>
+                    <option value="profile">Connection Profile (Recommended)</option>
                     <option value="ollama">Ollama (Local)</option>
                     <option value="openai">OpenAI Compatible (LM Studio/Kobold)</option>
                 </select>
@@ -77,11 +78,29 @@
                     <label style="font-size: 0.85em; opacity: 0.8;">Target URL:</label>
                     <input id="discord_openai_url" type="text" class="text_pole" placeholder="http://localhost:1234/v1"
                         style="margin-bottom: 10px;">
-                    <label style="font-size: 0.85em; opacity: 0.8;">API Key (if required):</label>
-                    <input id="discord_openai_key" type="password" class="text_pole" placeholder="sk-..."
-                        style="margin-bottom: 10px;">
+                    <div
+                        style="font-size: 0.75em; opacity: 0.6; margin-bottom: 10px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                        <i class="fa-solid fa-info-circle"></i> External API authentication is handled securely by
+                        SillyTavern's CORS proxy. Enable it in <code>config.yaml</code> with
+                        <code>enableCorsProxy: true</code>
+                    </div>
                     <label style="font-size: 0.85em; opacity: 0.8;">Model Identifier:</label>
                     <input id="discord_openai_model" type="text" class="text_pole" placeholder="local-model">
+                </div>
+
+                <!-- Provider Settings (Connection Profile) -->
+                <div id="discord_profile_settings"
+                    style="display:none; background: rgba(100,150,255,0.05); padding: 12px; border-radius: 8px; border: 1px solid rgba(100,150,255,0.1); margin-top: 5px;">
+                    <h5 style="margin: 0 0 10px 0; font-size: 0.85em; display: flex; align-items: center; gap: 6px;">
+                        <i class="fa-solid fa-link"></i> Connection Profile
+                    </h5>
+                    <label style="font-size: 0.85em; opacity: 0.8;">Select Profile:</label>
+                    <select id="discord_preset_select" class="text_pole" style="margin-bottom: 10px;"></select>
+                    <div
+                        style="font-size: 0.75em; opacity: 0.6; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                        <i class="fa-solid fa-shield-halved"></i> Uses your existing API credentials from SillyTavern's
+                        secure storage. No keys stored in extension.
+                    </div>
                 </div>
             </div>
 

@@ -1,6 +1,7 @@
 import { eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
 import { extension_settings, getContext, renderExtensionTemplateAsync } from '../../../extensions.js';
 import { debounce } from '../../../utils.js';
+import { getPresetManager } from '../../../../scripts/preset-manager.js';
 
 const urlParts = import.meta.url.split('/');
 const extensionsIndex = urlParts.lastIndexOf('extensions');
@@ -11,10 +12,10 @@ const settings = {
     enabled: true,
     showQuickBar: true,
     source: 'default',
+    preset: '', // Connection Profile preset name
     url: 'http://localhost:11434', // Ollama URL
     model: '', // Selected Ollama model
     openai_url: 'http://localhost:1234/v1',
-    openai_key: '',
     openai_model: 'local-model',
     openai_preset: 'custom',
     userCount: 5,
@@ -317,29 +318,81 @@ Do NOT output "Here are the messages". Just the content.`;
             }
         } else if (settings.source === 'openai') {
             const baseUrl = settings.openai_url.replace(/\/$/, '');
-            console.log(`[EchoChamber] Generating with OpenAI Compatible: ${settings.openai_model} at ${baseUrl}`);
+            const targetEndpoint = `${baseUrl}/chat/completions`;
+
+            // Detect if this is a localhost/local network URL
+            const isLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|::1|\[::1\])(:|\/|$)/i.test(baseUrl);
 
             abortController = new AbortController();
-            const response = await fetch(`${baseUrl}/chat/completions`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${settings.openai_key || 'sk-dummy'}`
-                },
-                body: JSON.stringify({
-                    model: settings.openai_model || 'local-model',
-                    messages: [
-                        { role: 'user', content: truePrompt }
-                    ],
-                    temperature: 0.7,
-                    max_tokens: 500
-                }),
-                signal: abortController.signal
-            });
+            let response;
 
-            if (!response.ok) throw new Error(`OpenAI Error: ${response.status} ${response.statusText} `);
+            if (isLocalhost) {
+                // Direct connection for localhost (KoboldCPP, LM Studio, etc.)
+                console.log(`[EchoChamber] Generating with local API: ${settings.openai_model} at ${targetEndpoint}`);
+                response = await fetch(targetEndpoint, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: settings.openai_model || 'local-model',
+                        messages: [
+                            { role: 'user', content: truePrompt }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 500
+                    }),
+                    signal: abortController.signal
+                });
+            } else {
+                // Use CORS proxy for external APIs
+                console.log(`[EchoChamber] Generating via CORS proxy: ${settings.openai_model} -> ${targetEndpoint}`);
+                response = await fetch('/api/proxy', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Target-URL': targetEndpoint
+                    },
+                    body: JSON.stringify({
+                        model: settings.openai_model || 'local-model',
+                        messages: [
+                            { role: 'user', content: truePrompt }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 500
+                    }),
+                    signal: abortController.signal
+                });
+            }
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`[EchoChamber] API Error:`, errorText);
+                if (isLocalhost) {
+                    throw new Error(`Local API Error: ${response.status} ${response.statusText}`);
+                } else {
+                    throw new Error(`Proxy Error: ${response.status} ${response.statusText}. Enable CORS proxy in config.yaml`);
+                }
+            }
             const data = await response.json();
             result = data.choices[0].message.content;
+
+        } else if (settings.source === 'profile') {
+            // Connection Profile generation using SillyTavern's preset manager
+            if (!settings.preset) {
+                setDiscordText('<div class="discord_status">No Connection Profile selected. Check settings.</div>');
+                return;
+            }
+
+            console.log(`[EchoChamber] Generating with Connection Profile: ${settings.preset}`);
+
+            const { generateRaw } = getContext();
+            const rawResult = await generateRaw({
+                prompt: truePrompt,
+                use_mancer: false,
+                forcePreset: settings.preset
+            });
+            result = rawResult;
 
         } else {
             // Default Generation logic - use generateRaw for better control
@@ -578,9 +631,9 @@ function loadSettings() {
     // Style dropdown is populated by updateAllDropdowns
     // $('#discord_style').val(settings.style || 'twitch');
     $('#discord_openai_url').val(settings.openai_url);
-    $('#discord_openai_key').val(settings.openai_key);
     $('#discord_openai_model').val(settings.openai_model);
     $('#discord_openai_preset').val(settings.openai_preset || 'custom');
+    $('#discord_preset_select').val(settings.preset || '');
     $('#discord_quick_bar_enabled').prop('checked', settings.showQuickBar);
 
     updateSourceVisibility();
@@ -617,11 +670,64 @@ function updateSourceVisibility() {
 
     const ollamaDiv = $('#discord_ollama_settings');
     const openaiDiv = $('#discord_openai_settings');
+    const profileDiv = $('#discord_profile_settings');
 
     ollamaDiv.toggle(source === 'ollama');
     openaiDiv.toggle(source === 'openai');
+    profileDiv.toggle(source === 'profile');
 
-    console.log(`[EchoChamber] Ollama visible: ${ollamaDiv.is(':visible')}, OpenAI visible: ${openaiDiv.is(':visible')}`);
+    console.log(`[EchoChamber] Ollama visible: ${ollamaDiv.is(':visible')}, OpenAI visible: ${openaiDiv.is(':visible')}, Profile visible: ${profileDiv.is(':visible')}`);
+
+    // Populate preset dropdown when profile is selected
+    if (source === 'profile') {
+        populatePresetDropdown();
+    }
+}
+
+async function populatePresetDropdown() {
+    const select = $('#discord_preset_select');
+
+    select.empty();
+    select.append('<option value="">-- Select a Connection Profile --</option>');
+
+    try {
+        console.log('[EchoChamber] Attempting to load connection profiles from data...');
+
+        // Wait up to 2 seconds for profiles to be available in extension_settings
+        let profilesData = [];
+        for (let i = 0; i < 10; i++) {
+            profilesData = extension_settings.connectionManager?.profiles || [];
+            if (profilesData.length > 0) break;
+            await new Promise(r => setTimeout(r, 200));
+        }
+
+        if (profilesData.length > 0) {
+            console.log(`[EchoChamber] Found ${profilesData.length} profiles in connectionManager data`);
+            profilesData.forEach(profile => {
+                select.append(`<option value="${profile.name}">${profile.name}</option>`);
+            });
+
+            // Set current value if exists
+            if (settings.preset) {
+                select.val(settings.preset);
+            }
+        } else {
+            console.warn('[EchoChamber] No profiles found in connectionManager data. Falling back to UI scraping...');
+            const profileSelect = $('#api_button_chat_completion_profile');
+            if (profileSelect.length > 0) {
+                profileSelect.find('option').each(function () {
+                    const value = $(this).val();
+                    const text = $(this).text();
+                    if (value && value !== '' && !text.includes('--')) {
+                        select.append(`<option value="${text}">${text}</option>`);
+                    }
+                });
+                if (settings.preset) select.val(settings.preset);
+            }
+        }
+    } catch (error) {
+        console.error('[EchoChamber] Error populating preset dropdown:', error);
+    }
 }
 
 function renderStyleOptions(selectedVal) {
@@ -926,12 +1032,6 @@ jQuery(async () => {
         saveSettingsDebounced();
     });
 
-    $('#discord_openai_key').on('change', function () {
-        settings.openai_key = $(this).val();
-        extension_settings.discord_chat.openai_key = settings.openai_key;
-        saveSettingsDebounced();
-    });
-
     $('#discord_openai_model').on('change', function () {
         settings.openai_model = $(this).val();
         extension_settings.discord_chat.openai_model = settings.openai_model;
@@ -970,6 +1070,13 @@ jQuery(async () => {
 
         $('#discord_openai_url').val(url).trigger('change');
         $('#discord_openai_model').val(model).trigger('change');
+    });
+
+    $('#discord_preset_select').on('change', function () {
+        settings.preset = $(this).val();
+        extension_settings.discord_chat.preset = settings.preset;
+        saveSettingsDebounced();
+        console.log(`[EchoChamber] Connection Profile selected: ${settings.preset}`);
     });
 
 
