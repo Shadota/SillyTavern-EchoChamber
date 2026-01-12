@@ -1446,7 +1446,7 @@ username: message
         const layoutBtn = createBtn('fa-solid fa-table-columns', 'Panel Position', 'ec_layout_menu');
         const usersBtn = createBtn('fa-solid fa-users', 'User Count', 'ec_user_menu');
         const fontBtn = createBtn('fa-solid fa-font', 'Font Size', 'ec_font_menu');
-        const clearBtn = createBtn('fa-solid fa-xmark', 'Clear Chat & Cache', null);
+        const clearBtn = createBtn('fa-solid fa-trash-can', 'Clear Chat & Cache', null);
 
         // Refresh is first on the left, then layout, users, font, and clear button last
         rightGroup.append(refreshBtn).append(layoutBtn).append(usersBtn).append(fontBtn).append(clearBtn);
