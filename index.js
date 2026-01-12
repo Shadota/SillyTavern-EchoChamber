@@ -39,6 +39,9 @@
         includeUserInput: false,
         contextDepth: 4,
         includePastEchoChambers: false,
+        livestream: false,
+        livestreamBatchSize: 20,
+        livestreamMode: 'manual',
         custom_styles: {},
         deleted_styles: []
     };
@@ -54,6 +57,11 @@
     let userCancelled = false; // Track user-initiated cancellations
     let isLoadingChat = false; // Track when we're loading/switching chats to prevent auto-generation
 
+    // Livestream state
+    let livestreamQueue = []; // Queue of messages to display
+    let livestreamTimer = null; // Timer for displaying next message
+    let livestreamActive = false; // Whether livestream is currently displaying messages
+
     // Simple debounce
     function debounce(func, wait) {
         return function (...args) {
@@ -62,7 +70,7 @@
         };
     }
 
-    const generateDebounced = debounce(generateDiscordChat, 500);
+    const generateDebounced = debounce(() => generateDiscordChat(), 500);
 
     // ============================================================
     // UTILITY FUNCTIONS
@@ -162,6 +170,7 @@
         if (clear) {
             setDiscordText('');
             clearCachedCommentary();
+            stopLivestream();
         }
         // Cancel any pending generation
         if (abortController) abortController.abort();
@@ -169,9 +178,19 @@
 
         // Only auto-generate if triggered by a new message, not by loading a chat
         if (autoGenerate) {
-            generateDebounced();
+            // If livestream is enabled and in onMessage mode, don't use regular generation
+            if (settings.livestream && settings.livestreamMode === 'onMessage') {
+                // Stop any current livestream and start a new batch
+                stopLivestream();
+                generateDebounced();
+            } else if (!settings.livestream) {
+                // Regular mode
+                generateDebounced();
+            }
+            // If livestream is in onComplete mode, let it handle its own generation cycle
         } else {
             // When loading a chat, restore cached commentary
+            stopLivestream();
             restoreCachedCommentary();
         }
     }
@@ -232,6 +251,89 @@
         }
     }
 
+    // ============================================================
+    // LIVESTREAM FUNCTIONS
+    // ============================================================
+
+    function stopLivestream() {
+        if (livestreamTimer) {
+            clearTimeout(livestreamTimer);
+            livestreamTimer = null;
+        }
+        livestreamQueue = [];
+        livestreamActive = false;
+        log('Livestream stopped');
+    }
+
+    function startLivestream(messages) {
+        stopLivestream(); // Clear any existing livestream
+
+        if (!messages || messages.length === 0) {
+            log('No messages to livestream');
+            return;
+        }
+
+        livestreamQueue = [...messages];
+        livestreamActive = true;
+
+        log('Starting livestream with', livestreamQueue.length, 'messages');
+
+        // Display first message immediately
+        displayNextLivestreamMessage();
+    }
+
+    function displayNextLivestreamMessage() {
+        if (livestreamQueue.length === 0) {
+            livestreamActive = false;
+            log('Livestream completed');
+
+            // If in onComplete mode, trigger next batch generation
+            if (settings.livestream && settings.livestreamMode === 'onComplete') {
+                log('Livestream onComplete mode: triggering next batch');
+                generateDebounced();
+            }
+            return;
+        }
+
+        const message = livestreamQueue.shift();
+
+        // Get current content
+        const currentContent = discordContent ? discordContent.html() : '';
+
+        // Prepend new message with animation class
+        const messageHtml = `<div class="ec_livestream_message">${message}</div>`;
+        const newContent = messageHtml + currentContent;
+
+        setDiscordText(newContent);
+
+        // Schedule next message with random delay between 5-60 seconds
+        const randomValue = Math.random();
+        const delay = randomValue * (60000 - 5000) + 5000; // 5-60 seconds in ms
+        log('Next livestream message in', (delay / 1000).toFixed(1), 'seconds (random:', randomValue.toFixed(3), '). Queue:', livestreamQueue.length, 'remaining');
+
+        livestreamTimer = setTimeout(() => displayNextLivestreamMessage(), delay);
+    }
+
+    function parseLivestreamMessages(html) {
+        // Parse the generated HTML to extract individual messages
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = html;
+
+        const messages = [];
+        const messageElements = tempDiv.querySelectorAll('.discord_message');
+
+        messageElements.forEach(el => {
+            messages.push(el.outerHTML);
+        });
+
+        log('Parsed', messages.length, 'messages from generated HTML');
+        return messages;
+    }
+
+    // ============================================================
+    // GENERATION FUNCTIONS
+    // ============================================================
+
     function saveGeneratedCommentary(html, messageCommentaries) {
         const chatId = SillyTavern.getContext().chatId;
         log('Saving generated commentary for chatId:', chatId, 'html length:', html?.length);
@@ -247,18 +349,13 @@
     // GENERATION
     // ============================================================
 
-    async function generateDiscordChat(force = false) {
+    async function generateDiscordChat() {
         if (!settings.enabled) {
             if (discordBar) discordBar.hide();
             return;
         }
 
         if (discordBar) discordBar.show();
-
-        // Do not generate if the panel is collapsed (hidden), unless forced
-        if (settings.collapsed && !force) {
-            return;
-        }
 
         const context = SillyTavern.getContext();
         const chat = context.chat;
@@ -283,7 +380,7 @@
         `);
 
         // Use event delegation to ensure the handler works even if button is recreated
-        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function (e) {
+        jQuery(document).off('click', '#ec_cancel_btn').on('click', '#ec_cancel_btn', function(e) {
             e.preventDefault();
             e.stopPropagation();
             log('Cancel button clicked');
@@ -396,21 +493,40 @@
 
         log('History messages:', historyMessages.map(m => ({ name: m.name, is_user: m.is_user })));
 
-        // Determine user count - narrator styles always use 1
+        // Determine user count and message count
         const isNarratorStyle = ['nsfw_ava', 'nsfw_kai', 'hypebot'].includes(settings.style);
-        let targetUserCount = isNarratorStyle ? 1 : (parseInt(settings.userCount) || 5);
-        const userCount = Math.max(1, Math.min(20, targetUserCount));
-        log('generateDiscordChat - userCount:', userCount, isNarratorStyle ? '(narrator style)' : '');
+
+        let actualUserCount; // Number of different users
+        let messageCount; // Number of messages to generate
+
+        if (settings.livestream) {
+            // In livestream mode, use user count for number of users, batch size for messages
+            actualUserCount = isNarratorStyle ? 1 : Math.max(1, Math.min(20, parseInt(settings.userCount) || 5));
+            messageCount = isNarratorStyle ? 1 : Math.max(5, Math.min(50, parseInt(settings.livestreamBatchSize) || 20));
+            log('Livestream mode - users:', actualUserCount, 'messages:', messageCount);
+        } else {
+            // Regular mode - user count determines both
+            actualUserCount = isNarratorStyle ? 1 : (parseInt(settings.userCount) || 5);
+            messageCount = actualUserCount;
+        }
+
+        const userCount = Math.max(1, Math.min(50, messageCount));
+        log('generateDiscordChat - userCount:', userCount, isNarratorStyle ? '(narrator style)' : '', settings.livestream ? '(livestream batch)' : '');
 
         const stylePrompt = await loadChatStyle(settings.style || 'twitch');
 
         // Simple system message
         const systemMessage = 'You are an excellent creator of fake chat feeds that react dynamically to the user\'s conversation context.';
 
-        // Build dynamic prefix based on style type
-        const countInstruction = isNarratorStyle
-            ? ''
-            : `IMPORTANT: You MUST generate EXACTLY ${userCount} chat messages. Not fewer, not more - exactly ${userCount}.\n\n`;
+        // Build dynamic prefix based on style type and mode
+        let countInstruction = '';
+        if (!isNarratorStyle) {
+            if (settings.livestream) {
+                countInstruction = `IMPORTANT: You MUST generate EXACTLY ${messageCount} chat messages from EXACTLY ${actualUserCount} different users. Each user can post multiple messages. Not fewer, not more - exactly ${messageCount} messages from ${actualUserCount} users.\n\n`;
+            } else {
+                countInstruction = `IMPORTANT: You MUST generate EXACTLY ${userCount} chat messages. Not fewer, not more - exactly ${userCount}.\n\n`;
+            }
+        }
 
         const truePrompt = `<story_context>
 ${history}
@@ -424,7 +540,7 @@ How do you react to the story context above?
 
 Think about it first.
 
-STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. Do NOT output preamble like "Here are the messages". Just output the content directly.`;
+STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : settings.livestream ? `Output exactly ${messageCount} messages from ${actualUserCount} users.` : `Output exactly ${userCount} messages.`} Do NOT continue the story or roleplay as the characters. The created by you people are allowed to interact with each other over your generated feed. Do NOT output preamble like "Here are the messages". Just output the content directly.`;
 
         try {
             let result = '';
@@ -447,7 +563,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 const response = await context.ConnectionManagerRequestService.sendRequest(
                     profile.id,
                     messages,
-                    4096, // max_tokens
+                    512, // max_tokens
                     {
                         stream: false,
                         signal: abortController.signal,
@@ -478,7 +594,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         system: systemMessage,
                         prompt: truePrompt,
                         stream: false,
-                        options: { num_ctx: 8192, num_predict: 4096, stop: ["</discordchat>"] }
+                        options: { num_ctx: 2048, num_predict: 512, stop: ["</discordchat>"] }
                     }),
                     signal: abortController.signal
                 });
@@ -495,7 +611,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                         { role: 'system', content: systemMessage },
                         { role: 'user', content: truePrompt }
                     ],
-                    temperature: 0.7, max_tokens: 4096, stream: false
+                    temperature: 0.7, max_tokens: 500, stream: false
                 };
 
                 const response = await fetch(targetEndpoint, {
@@ -511,7 +627,7 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
                 // Default ST generation using context
                 const { generateRaw } = context;
                 if (generateRaw) {
-                    result = await generateRaw({ systemPrompt: systemMessage, prompt: truePrompt, streaming: false, max_length: 4096, max_tokens: 4096 });
+                    result = await generateRaw({ systemPrompt: systemMessage, prompt: truePrompt, streaming: false });
                 } else {
                     throw new Error('generateRaw not available in context');
                 }
@@ -574,15 +690,32 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
             setStatus('');
 
             if (messageCount === 0) {
-                setDiscordText('<div class="discord_status">No valid chat lines generated.</div>');
+                setDiscordText('<div class=\"discord_status\">No valid chat lines generated.</div>');
             } else {
-                setDiscordText(htmlBuffer);
+                // Check if livestream mode is enabled
+                if (settings.livestream) {
+                    // Parse individual messages for livestream
+                    const messages = parseLivestreamMessages(htmlBuffer);
+                    log('Livestream mode: queuing', messages.length, 'messages');
 
-                // Save to metadata for persistence
-                const lastMsgIndex = chat.length - 1;
-                const updatedCommentaries = { ...(messageCommentaries || {}) };
-                updatedCommentaries[lastMsgIndex] = cleanResult; // Store the raw commentary text
-                saveGeneratedCommentary(htmlBuffer, updatedCommentaries);
+                    // Save to metadata for persistence
+                    const lastMsgIndex = chat.length - 1;
+                    const updatedCommentaries = { ...(messageCommentaries || {}) };
+                    updatedCommentaries[lastMsgIndex] = cleanResult;
+                    saveGeneratedCommentary(htmlBuffer, updatedCommentaries);
+
+                    // Start livestream display
+                    startLivestream(messages);
+                } else {
+                    // Regular mode - display all at once
+                    setDiscordText(htmlBuffer);
+
+                    // Save to metadata for persistence
+                    const lastMsgIndex = chat.length - 1;
+                    const updatedCommentaries = { ...(messageCommentaries || {}) };
+                    updatedCommentaries[lastMsgIndex] = cleanResult; // Store the raw commentary text
+                    saveGeneratedCommentary(htmlBuffer, updatedCommentaries);
+                }
             }
 
         } catch (err) {
@@ -612,14 +745,15 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
     const STYLE_FILES = {
         'twitch': 'discordtwitch.md', 'verbose': 'thoughtfulverbose.md', 'twitter': 'twitterx.md', 'news': 'breakingnews.md',
         'mst3k': 'mst3k.md', 'nsfw_ava': 'nsfwava.md', 'nsfw_kai': 'nsfwkai.md', 'hypebot': 'hypebot.md',
-        'doomscrollers': 'doomscrollers.md', 'dumbanddumber': 'dumbanddumber.md'
+        'doomscrollers': 'doomscrollers.md', 'dumbanddumber': 'dumbanddumber.md', 'ao3wattpad': 'ao3wattpad.md'
     };
     const BUILT_IN_STYLES = [
         { val: 'twitch', label: 'Discord / Twitch' }, { val: 'verbose', label: 'Thoughtful' },
         { val: 'twitter', label: 'Twitter / X' }, { val: 'news', label: 'Breaking News' },
         { val: 'mst3k', label: 'MST3K' }, { val: 'nsfw_ava', label: 'Ava NSFW' },
         { val: 'nsfw_kai', label: 'Kai NSFW' }, { val: 'hypebot', label: 'HypeBot' },
-        { val: 'doomscrollers', label: 'Doomscrollers' }, { val: 'dumbanddumber', label: 'Dumb & Dumber' }
+        { val: 'doomscrollers', label: 'Doomscrollers' }, { val: 'dumbanddumber', label: 'Dumb & Dumber' },
+        { val: 'ao3wattpad', label: 'AO3 / Wattpad' }
     ];
 
     function getAllStyles() {
@@ -700,6 +834,22 @@ STRICTLY follow the format defined in the instruction. ${isNarratorStyle ? '' : 
         jQuery('#discord_include_user').prop('checked', settings.includeUserInput);
         jQuery('#discord_context_depth').val(settings.contextDepth || 4);
         jQuery('#discord_include_past_echo').prop('checked', settings.includePastEchoChambers || false);
+
+        // Livestream settings
+        jQuery('#discord_livestream').prop('checked', settings.livestream || false);
+        jQuery('#discord_livestream_batch_size').val(settings.livestreamBatchSize || 20);
+        jQuery('#discord_livestream_settings').toggle(settings.livestream || false);
+
+        // Set livestream mode radio button
+        const livestreamMode = settings.livestreamMode || 'manual';
+        if (livestreamMode === 'manual') {
+            jQuery('#discord_livestream_manual').prop('checked', true);
+        } else if (livestreamMode === 'onMessage') {
+            jQuery('#discord_livestream_onmessage').prop('checked', true);
+        } else {
+            jQuery('#discord_livestream_oncomplete').prop('checked', true);
+        }
+
         // Show/hide context depth based on include user input setting
         jQuery('#discord_context_depth_container').toggle(settings.includeUserInput);
 
@@ -1434,10 +1584,11 @@ username: message
         discordBar = jQuery('<div id="discordBar"></div>');
         discordQuickBar = jQuery('<div id="discordQuickSettings"></div>');
 
-        // Header Left - Toggle button only
+        // Header Left - Toggle button and Live indicator
         const leftGroup = jQuery('<div class="ec_header_left"></div>');
         const toggleBtn = jQuery('<div class="ec_toggle_btn" title="Toggle On/Off"><i class="fa-solid fa-power-off"></i></div>');
-        leftGroup.append(toggleBtn);
+        const liveIndicator = jQuery('<div class="ec_live_indicator" id="ec_live_indicator"><i class="fa-solid fa-circle"></i> LIVE</div>');
+        leftGroup.append(toggleBtn).append(liveIndicator);
 
         // Header Right - All icon buttons (Refresh first, then layout, users, font)
         const rightGroup = jQuery('<div class="ec_header_right"></div>');
@@ -1635,6 +1786,18 @@ username: message
             btn.removeClass('fa-power-off').addClass('fa-power-off');
             discordBar.find('.ec_toggle_btn').css('color', 'var(--ec-accent)');
         }
+        updateLiveIndicator();
+    }
+
+    function updateLiveIndicator() {
+        const indicator = jQuery('#ec_live_indicator');
+        if (!indicator.length) return;
+
+        if (settings.livestream) {
+            indicator.removeClass('ec_live_off').addClass('ec_live_on');
+        } else {
+            indicator.removeClass('ec_live_on').addClass('ec_live_off');
+        }
     }
 
     // ============================================================
@@ -1724,17 +1887,6 @@ username: message
             // Immediately apply/remove collapsed class
             if (settings.collapsed) {
                 discordBar.addClass('ec_collapsed');
-
-                // Ensure no pending generation starts
-                clearTimeout(debounceTimeout);
-
-                // Abort any ongoing generation when toggled off
-                if (abortController) {
-                    userCancelled = true;
-                    abortController.abort();
-                    setStatus('');
-                    log('Generation aborted due to panel collapse');
-                }
             } else {
                 discordBar.removeClass('ec_collapsed');
             }
@@ -1759,7 +1911,7 @@ username: message
             } else if (btn.find('.fa-rotate-right').length) {
                 btn.find('i').addClass('fa-spin');
                 setTimeout(() => btn.find('i').removeClass('fa-spin'), 1000);
-                generateDebounced(true);
+                generateDebounced();
             } else if (btn.find('.fa-trash-can').length) {
                 // Clear button clicked
                 if (confirm('Clear generated chat and all cached commentary?')) {
@@ -1933,18 +2085,43 @@ username: message
             log('Auto-update on messages:', settings.autoUpdateOnMessages);
         });
 
-        // Auto-update On Messages toggle
-        jQuery('#discord_auto_update').on('change', function () {
-            settings.autoUpdateOnMessages = jQuery(this).prop('checked');
-            saveSettings();
-            log('Auto-update on messages:', settings.autoUpdateOnMessages);
-        });
-
         // Include Past Generated EchoChambers toggle
         jQuery('#discord_include_past_echo').on('change', function () {
             settings.includePastEchoChambers = jQuery(this).prop('checked');
             saveSettings();
             log('Include past EchoChambers:', settings.includePastEchoChambers);
+        });
+
+        // Livestream toggle
+        jQuery('#discord_livestream').on('change', function () {
+            settings.livestream = jQuery(this).prop('checked');
+            saveSettings();
+            log('Livestream:', settings.livestream);
+
+            // Show/hide livestream settings
+            jQuery('#discord_livestream_settings').toggle(settings.livestream);
+
+            // Update live indicator
+            updateLiveIndicator();
+
+            // Stop any active livestream when toggled off
+            if (!settings.livestream) {
+                stopLivestream();
+            }
+        });
+
+        // Livestream batch size
+        jQuery('#discord_livestream_batch_size').on('change', function () {
+            settings.livestreamBatchSize = parseInt(jQuery(this).val()) || 20;
+            saveSettings();
+            log('Livestream batch size:', settings.livestreamBatchSize);
+        });
+
+        // Livestream mode radio buttons
+        jQuery('input[name=\"discord_livestream_mode\"]').on('change', function () {
+            settings.livestreamMode = jQuery(this).val();
+            saveSettings();
+            log('Livestream mode:', settings.livestreamMode);
         });
 
         // Style Editor button
@@ -2019,7 +2196,17 @@ username: message
                 // Don't auto-generate if we're currently loading/switching chats
                 if (isLoadingChat) return;
 
-                const shouldAutoGenerate = settings.autoUpdateOnMessages === true;
+                // Determine if we should auto-generate
+                let shouldAutoGenerate = false;
+
+                if (settings.livestream && settings.livestreamMode === 'onMessage') {
+                    // Livestream in onMessage mode takes priority
+                    shouldAutoGenerate = true;
+                } else if (!settings.livestream && settings.autoUpdateOnMessages === true) {
+                    // Regular auto-update (only if livestream is off)
+                    shouldAutoGenerate = true;
+                }
+
                 onChatEvent(false, shouldAutoGenerate);
             });
             // On chat change (loading a conversation), clear display and try to restore from metadata

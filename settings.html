@@ -105,6 +105,7 @@
                             <option value="hypebot">HypeBot</option>
                             <option value="doomscrollers">Doomscrollers</option>
                             <option value="dumbanddumber">Dumb & Dumber</option>
+                            <option value="ao3wattpad">AO3 / Wattpad</option>
                             <option value="custom">Custom</option>
                         </select>
                     </div>
@@ -183,7 +184,7 @@
                 </div>
 
                 <!-- Include Past Generated EchoChambers -->
-                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px;">
+                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 10px;">
                     <label class="checkbox_label" for="discord_include_past_echo"
                         style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
                         <input id="discord_include_past_echo" type="checkbox" class="checkbox">
@@ -192,6 +193,50 @@
                     </label>
                     <div style="margin-top: 6px; margin-left: 24px; font-size: 0.75em; opacity: 0.6;">
                         Includes previous commentary in the prompt for new generations
+                    </div>
+                </div>
+
+                <!-- Livestream Mode -->
+                <div style="padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px;">
+                    <label class="checkbox_label" for="discord_livestream"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input id="discord_livestream" type="checkbox" class="checkbox">
+                        <span style="font-size: 0.9em;"><i class="fa-solid fa-tower-broadcast"
+                                style="width: 16px; opacity: 0.8;"></i> Livestream</span>
+                    </label>
+                    <div style="margin-top: 6px; margin-left: 24px; font-size: 0.75em; opacity: 0.6;">
+                        Instead of displaying the entire chat feed at once, simulate a "livestream" by showing messages appear in the panel over time
+                    </div>
+
+                    <!-- Livestream Settings -->
+                    <div id="discord_livestream_settings" style="margin-top: 10px; margin-left: 24px; display: none;">
+                        <!-- Batch Size -->
+                        <div style="margin-bottom: 10px;">
+                            <label for="discord_livestream_batch_size" style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 4px;">
+                                <i class="fa-solid fa-boxes-stacked" style="width: 14px;"></i> Batch Size:
+                            </label>
+                            <input id="discord_livestream_batch_size" type="number" class="text_pole" min="5" max="50" value="20"
+                                style="width: 80px; font-size: 0.85em;" title="Number of messages to generate per batch">
+                        </div>
+
+                        <!-- Generation Mode -->
+                        <div style="margin-bottom: 8px;">
+                            <label style="font-size: 0.8em; opacity: 0.8; display: block; margin-bottom: 6px;">
+                                <i class="fa-solid fa-clapperboard" style="width: 14px;"></i> Generation Mode:
+                            </label>
+                            <label class="checkbox_label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
+                                <input type="radio" name="discord_livestream_mode" value="manual" class="radio" id="discord_livestream_manual" checked>
+                                <span style="font-size: 0.85em;">Manual Upon Clicking Regenerate Chat</span>
+                            </label>
+                            <label class="checkbox_label" style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 4px;">
+                                <input type="radio" name="discord_livestream_mode" value="onMessage" class="radio" id="discord_livestream_onmessage">
+                                <span style="font-size: 0.85em;">Generate Upon Receiving A New Message</span>
+                            </label>
+                            <label class="checkbox_label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                <input type="radio" name="discord_livestream_mode" value="onComplete" class="radio" id="discord_livestream_oncomplete">
+                                <span style="font-size: 0.85em;">Generate A New Batch After The Last One Finishes</span>
+                            </label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -214,7 +259,7 @@
                     </button>
                 </div>
                 <div style="text-align: center; margin-top: 8px; font-size: 0.75em; opacity: 0.5; font-family: monospace;">
-                    v4.0.0
+                    v4.1.0
                 </div>
                 <input type="file" id="discord_import_file" accept=".md" style="display:none;">
             </div>
